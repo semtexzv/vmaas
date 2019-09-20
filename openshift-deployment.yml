@@ -12,7 +12,7 @@
         msg: "You must run this playbook with tags! Available tags: up, routes-up, down, routes-down, rebuild-images, configure-apidoc, upgrade-start, upgrade-finish, upgrade-cleanup, centos-containers."
 
     - name: Get current Git branch
-      command: git rev-parse --abbrev-ref HEAD
+      command: echo 'experiments' #git rev-parse --abbrev-ref HEAD
       changed_when: False
       register: git_branch_name
       tags:

@@ -68,7 +68,7 @@ objects:
     source:
       git:
         ref: ${GIT_REF}
-        uri: 'https://github.com/RedHatInsights/vmaas.git'
+        uri: 'https://github.com/semtexzv/vmaas.git'
       type: Git
     strategy:
       dockerStrategy:
