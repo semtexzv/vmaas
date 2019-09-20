@@ -9,7 +9,7 @@ parameters:
   value: '1'
 - name: GIT_REF
   description: Git reference in repository to build from
-  value: webapp-connexion
+  value: experiemnts
 - name: DOCKERFILE
   description: Dockerfile to build from
   value: webapp/Dockerfile
