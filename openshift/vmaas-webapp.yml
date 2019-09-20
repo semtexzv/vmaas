@@ -9,7 +9,7 @@ parameters:
   value: '1'
 - name: GIT_REF
   description: Git reference in repository to build from
-  value: master
+  value: webapp-connexion
 - name: DOCKERFILE
   description: Dockerfile to build from
   value: webapp/Dockerfile
@@ -56,7 +56,7 @@ objects:
     source:
       git:
         ref: ${GIT_REF}
-        uri: 'https://github.com/RedHatInsights/vmaas.git'
+        uri: 'https://github.com/semtexzv/vmaas.git'
       type: Git
     strategy:
       dockerStrategy:
