@@ -371,8 +371,9 @@ def create_app():
 
         duration = (time.time() - start_time)
 
+        const_path = '/'.join(request.path.split('/')[:3])
         REQUEST_TIME.labels(request.method, request.path).observe(duration)
-        REQUEST_COUNTS.labels(request.method, request.path, res.status).inc()
+        REQUEST_COUNTS.labels(request.method, const_path, res.status).inc()
 
         return res
 
