@@ -16,9 +16,9 @@ ENV POSTGRESQL_DATABASE 'vmaas'
 ENV POSTGRESQL_WRITER_PASSWORD 'vmaas_writer_pwd'
 ENV POSTGRESQL_READER_PASSWORD 'vmaas_reader_pwd'
 
-ADD /database/vmaas_db_postgresql.sql ${CONTAINER_SCRIPTS_PATH}/start/
-ADD /database/vmaas_user_create_postgresql.sql ${CONTAINER_SCRIPTS_PATH}/start/
-ADD /database/init_schema.sh ${CONTAINER_SCRIPTS_PATH}/start/
+ADD /database/schema/vmaas_db_postgresql.sql ${CONTAINER_SCRIPTS_PATH}/start/
+ADD /database/schema/vmaas_user_create_postgresql.sql ${CONTAINER_SCRIPTS_PATH}/start/
+ADD /database/schema/init_schema.sh ${CONTAINER_SCRIPTS_PATH}/start/
 
 RUN /generate_rpm_list.sh > /tmp/final_rpm_list.txt
 ENV MANIFEST_PATH=/opt/app-root/manifest.txt

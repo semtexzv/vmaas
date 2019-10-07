@@ -39,5 +39,9 @@ ADD /webapp/*.spec.yaml /webapp/
 ADD /webapp/*.sh        /webapp/
 ADD /webapp/*.py        /webapp/
 ADD /common/*.py        /webapp/common/
+ADD /database/*.py                         /webapp/database/
+ADD /database/upgrade/*.py                 /webapp/database/upgrade/
+ADD /database/upgrade/dbupgrade.sh         /webapp/
+ADD /database/schema/upgrade_scripts/*.sql /webapp/database/schema/upgrade_scripts/
 
 CMD /webapp/entrypoint.sh
