@@ -15,6 +15,8 @@ DEFAULT_KEEP_COPIES = "2"
 DUMP = '/data/vmaas.dbm'
 LOGGER = get_logger(__name__)
 
+import sqlite3
+
 
 class DataDump:
     """Class for creating disk dump from database."""
@@ -36,12 +38,12 @@ class DataDump:
         dump_filename = "%s-%s" % (self.filename, timestamp)
         LOGGER.info("Exporting data to %s", dump_filename)
         try:
-            with shelve.open(dump_filename, 'c') as dump:
+            with sqlite3.connect('/git/data.db') as dump:
+                self._dump_arch(dump)
+                self._dump_arch_compat(dump)
                 self._dump_packagename(dump)
                 self._dump_updates(dump)
                 self._dump_evr(dump)
-                self._dump_arch(dump)
-                self._dump_arch_compat(dump)
                 self._dump_package_details(dump)
                 self._dump_repo(dump)
                 self._dump_errata(dump)
@@ -98,13 +100,13 @@ order by p.name_id, evr.evr
                 for name_id, arch_id, pkg_id, evr_id in cursor:
                     idx = index_cnt.get((name_id, arch_id), 0)
 
-                    updates.setdefault("updates:%s" % name_id, {})\
+                    updates.setdefault("updates:%s" % name_id, {}) \
                         .setdefault(arch_id, []) \
                         .append(pkg_id)
 
                     updates_index.setdefault("updates_index:%s" % name_id, {}) \
-                                 .setdefault(arch_id, {}) \
-                                 .setdefault(evr_id, []).append(idx)
+                        .setdefault(arch_id, {}) \
+                        .setdefault(evr_id, []).append(idx)
                     idx += 1
                     index_cnt[(name_id, arch_id)] = idx
                 dump.update(updates)
@@ -122,18 +124,29 @@ order by p.name_id, evr.evr
         """Select all archs and put them into dictionary"""
         with self._named_cursor() as cursor:
             cursor.execute("select id, name from arch")
-            for arch_id, name in cursor:
-                dump["arch2id:%s" % name] = arch_id
-                dump["id2arch:%s" % arch_id] = name
+
+            dump.execute("""
+            create table if not exists  arch(
+                id int primary key,
+                name varchar not null
+            )
+            """)
+
+            dump.cursor().executemany("insert into arch values(?,?)", cursor)
 
     def _dump_arch_compat(self, dump):
         """Select information about archs compatibility"""
         with self._named_cursor() as cursor:
             cursor.execute("select from_arch_id, to_arch_id from arch_compatibility")
-            arch_compat = {}
-            for from_arch_id, to_arch_id in cursor:
-                arch_compat.setdefault("arch_compat:%s" % from_arch_id, set()).add(to_arch_id)
-            dump.update(arch_compat)
+
+            dump.execute("""
+            create table if not exists arch_compat(
+                from_arch_id int not null,
+                to_arch_id int not null
+            )
+            """)
+
+            dump.cursor().executemany("insert into arch_compat values(?,?)", cursor)
 
     def _dump_package_details(self, dump):
         """Select details about packages (for previously selected package names)"""
@@ -144,19 +157,34 @@ order by p.name_id, evr.evr
                                    where name_id in %s
                                """, [tuple(self.packagename_ids)])
                 src_pkg_id2pkg_ids = dict()
+
+                dump.execute("""
+                create table if not exists strings(
+                    id int primary key not null,
+                    string varchar not null
+                )
+                """)
+
+                dump.execute("""
+                create table if not exists package_details(
+                name_id int not null,
+                evr_id int not null,
+                arch_id int not null,
+                sum_id int not null,
+                desc_id int not null,
+                src_pkg_id int
+                )
+                """)
+
                 for pkg_id, name_id, evr_id, arch_id, summary, description, source_package_id in cursor:
                     sum_id = hash(summary)
                     desc_id = hash(description)
-                    dump["strings:%s" % sum_id] = summary
-                    dump["strings:%s" % desc_id] = description
-                    dump["package_details:%s" % pkg_id] = (name_id, evr_id, arch_id, sum_id, desc_id,
-                                                           source_package_id or 0)
-                    dump["nevra2pkgid:%s:%s:%s" % (name_id, evr_id, arch_id)] = pkg_id
+                    dump.cursor().executemany("insert into strings values (?, ?)", [(sum_id, summary), (desc_id,description)])
+                    dump.cursor().execute("insert into package_details values(?, ?, ? , ? ,?, ?)",
+                                          (name_id, evr_id, arch_id, sum_id, desc_id, source_package_id))
 
                     self.package_ids.append(pkg_id)
-                    if source_package_id is not None:
-                        src_pkg_id2pkg_ids.setdefault("src_pkg_id2pkg_ids:%s" % source_package_id, []).append(pkg_id)
-                dump.update(src_pkg_id2pkg_ids)
+
 
     def _dump_repo(self, dump):
         """Select repo mappings"""
