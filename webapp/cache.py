@@ -8,6 +8,8 @@ import shelve
 import array
 from common.logging_utils import get_logger
 
+import sqlite3
+
 DUMP = '/data/vmaas.dbm'
 REMOTE_DUMP = 'rsync://%s:8730/data/vmaas.dbm' % os.getenv("REPOSCAN_HOST", "reposcan")
 
@@ -82,6 +84,7 @@ class Cache:
         self.reload()
 
     def clear(self):
+        self.sqlite = None
         """Clear dictionaries and load new data."""
         self.packagename2id = {}
         self.id2packagename = {}
@@ -119,9 +122,18 @@ class Cache:
     def download():
         """Download new version of data."""
         return not os.system("rsync -a --copy-links --quiet %s %s" % (REMOTE_DUMP, DUMP))
+
+
     def load(self, filename):
         """Load data from shelve file into dictionaries."""
         # pylint: disable=too-many-branches,too-many-statements
+        tmp = sqlite3.connect(filename)
+
+        self.sqlite = sqlite3.connect(":memory:")
+        for l in tmp.iterdump():
+            self.sqlite.execute(l)
+        return
+
         try:
             data = shelve.open(filename, 'r')
         except dbm.error as err:

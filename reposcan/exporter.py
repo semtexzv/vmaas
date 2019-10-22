@@ -38,19 +38,23 @@ class DataDump:
         dump_filename = "%s-%s" % (self.filename, timestamp)
         LOGGER.info("Exporting data to %s", dump_filename)
         try:
-            with sqlite3.connect('/git/data.db') as dump:
+            with sqlite3.connect(dump_filename) as dump:
                 self._dump_arch(dump)
                 self._dump_arch_compat(dump)
                 self._dump_packagename(dump)
-                self._dump_updates(dump)
+                #self._dump_updates(dump)
                 self._dump_evr(dump)
                 self._dump_package_details(dump)
                 self._dump_repo(dump)
                 self._dump_errata(dump)
-                self._dump_cves(dump)
-                self._dump_modules(dump)
-                self._dump_dbchange(dump)
-                dump["dbchange:exported"] = timestamp
+                #self._dump_cves(dump)
+                #self._dump_modules(dump)
+                #self._dump_dbchange(dump)
+                #dump["dbchange:exported"] = timestamp
+                dump.execute("create unique index idx_arch on arch (name, id)")
+                dump.execute("create unique index idx_evr on evr (epoch, version, release, id)")
+                dump.execute("create unique index idx_name on package_name (name, id)")
+                dump.execute("create unique index idx_pkg on package_details (name_id, arch_id, evr_id, id)")
         except Exception:  # pylint: disable=broad-except
             # database exceptions caught here
             LOGGER.exception("Failed to create dbdump")
@@ -77,9 +81,16 @@ class DataDump:
                                      errata_cve ec on e.id = ec.errata_id
                                where et.name = 'security' or ec.cve_id is not null
                             """)
+
+            dump.cursor().execute("""
+            create table if not exists package_name (
+                id integer primary key,
+                name varchar not null
+            )
+            """)
+
             for name_id, pkg_name in cursor:
-                dump["packagename2id:%s" % pkg_name] = name_id
-                dump["id2packagename:%s" % name_id] = pkg_name
+                dump.cursor().execute("insert into package_name values (?, ?)", (name_id, pkg_name))
                 self.packagename_ids.append(name_id)
 
     def _dump_updates(self, dump):
@@ -116,9 +127,15 @@ order by p.name_id, evr.evr
         """Select all evrs and put them into dictionary"""
         with self._named_cursor() as cursor:
             cursor.execute("select id, epoch, version, release from evr")
-            for evr_id, epoch, ver, rel in cursor:
-                dump["evr2id:%s:%s:%s" % (epoch, ver, rel)] = evr_id
-                dump["id2evr:%s" % evr_id] = (epoch, ver, rel)
+            dump.cursor().execute("""
+            create table if not exists evr(
+                id integer primary key,
+                epoch integer not null,
+                version varchar not null,
+                release varchar not null
+            )
+            """)
+            dump.cursor().executemany("""insert into evr values (?, ?, ?, ?)""", cursor)
 
     def _dump_arch(self, dump):
         """Select all archs and put them into dictionary"""
@@ -126,13 +143,13 @@ order by p.name_id, evr.evr
             cursor.execute("select id, name from arch")
 
             dump.execute("""
-            create table if not exists  arch(
+            create table if not exists arch(
                 id int primary key,
                 name varchar not null
             )
             """)
 
-            dump.cursor().executemany("insert into arch values(?,?)", cursor)
+            dump.cursor().executemany("insert into arch values(?, ?)", cursor)
 
     def _dump_arch_compat(self, dump):
         """Select information about archs compatibility"""
@@ -161,27 +178,28 @@ order by p.name_id, evr.evr
                 dump.execute("""
                 create table if not exists strings(
                     id int primary key not null,
-                    string varchar not null
+                    string varchar 
                 )
                 """)
 
                 dump.execute("""
                 create table if not exists package_details(
-                name_id int not null,
-                evr_id int not null,
-                arch_id int not null,
-                sum_id int not null,
-                desc_id int not null,
-                src_pkg_id int
+                    id int primary key,
+                    name_id int not null,
+                    evr_id int not null,
+                    arch_id int not null,
+                    sum_id int not null,
+                    desc_id int not null,
+                    src_pkg_id int
                 )
                 """)
 
                 for pkg_id, name_id, evr_id, arch_id, summary, description, source_package_id in cursor:
                     sum_id = hash(summary)
                     desc_id = hash(description)
-                    dump.cursor().executemany("insert into strings values (?, ?)", [(sum_id, summary), (desc_id,description)])
-                    dump.cursor().execute("insert into package_details values(?, ?, ? , ? ,?, ?)",
-                                          (name_id, evr_id, arch_id, sum_id, desc_id, source_package_id))
+                    dump.cursor().executemany("insert or replace into strings values (?, ?)", [(sum_id, summary), (desc_id,description)])
+                    dump.cursor().execute("insert into package_details values(?, ?, ?, ? , ? ,?, ?)",
+                                          (pkg_id, name_id, evr_id, arch_id, sum_id, desc_id, source_package_id))
 
                     self.package_ids.append(pkg_id)
 
@@ -205,32 +223,55 @@ order by p.name_id, evr.evr
                                  left join arch a on a.id = r.basearch_id
                                  join product p on p.id = cs.product_id
                                  """)
-            repolabel2ids = {}
-            productid2repoids = {}
+
+            dump.cursor().execute("""
+              create table if not exists repo_detail(
+                  id int primary key,
+                  label varchar not null,
+                  name varchar not null,
+                  url varchar,
+                  releasever varchar,
+                  basearch varchar, 
+                  product varchar,
+                  product_id varchar,
+                  revision varchar
+              )
+            """)
+
             for oid, label, name, url, basearch, releasever, product, product_id, revision in cursor:
-                dump["repo_detail:%s" % oid] = (label, name, url, basearch,
-                                                releasever, product, product_id,
-                                                format_datetime(revision))
-                repolabel2ids.setdefault("repolabel2ids:%s" % label, []).append(oid)
-                productid2repoids.setdefault("productid2repoids:%s" % product_id, []).append(oid)
-            dump.update(repolabel2ids)
-            dump.update(productid2repoids)
+                dump.cursor().execute("""
+                insert into repo_detail values(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (oid, label, name, url, basearch,
+                        releasever, product, product_id,
+                        format_datetime(revision)))
 
         if self.package_ids:
+            dump.cursor().execute("""
+                create table if not exists pkg_repo (
+                    pkg_id integer not null,
+                    repo_id integer not null,
+                    primary key (pkg_id, repo_id)
+                )
+              """)
             # Select package ID to repo IDs mapping
             with self._named_cursor() as cursor:
                 cursor.execute("""select pkg_id, repo_id
                                     from pkg_repo
                                    where pkg_id in %s
                                """, [tuple(self.package_ids)])
-                pkgid2repoids = {}
-                for pkg_id, repo_id in cursor:
-                    pkgid2repoids.setdefault("pkgid2repoids:%s" % pkg_id, []).append(repo_id)
-                dump.update(pkgid2repoids)
+                dump.cursor().executemany("insert into pkg_repo values(?,?)", cursor)
 
     def _dump_errata(self, dump):  # pylint: disable=too-many-branches
         """Select errata mappings"""
         # Select errata ID to name mapping
+
+        dump.cursor().execute("""
+        create table if not exists errata(
+            id int primary key,
+            name varchar
+        )
+        """)
+
         with self._named_cursor() as cursor:
             cursor.execute("""select distinct e.id, e.name
                                 from errata e
@@ -239,20 +280,31 @@ order by p.name_id, evr.evr
                                where et.name = 'security' or ec.cve_id is not null
                            """)
             for errata_id, errata_name in cursor:
-                dump["errataid2name:%s" % errata_id] = errata_name
+                dump.cursor().execute("insert into errata values(?, ?)", (errata_id, errata_name))
                 self.errata_ids.append(errata_id)
 
         if self.errata_ids:
+            dump.cursor().execute("""
+                create table if not exists pkg_errata(
+                    pkg_id int,
+                    errata_id int,
+                    primary key (pkg_id, errata_id)
+                )""")
+
             # Select package ID to errata IDs mapping, only for relevant errata
             with self._named_cursor() as cursor:
                 cursor.execute("""select pkg_id, errata_id
                                     from pkg_errata
                                    where errata_id in %s
                                 """, [tuple(self.errata_ids)])
-                pkgid2errataids = {}
-                for pkg_id, errata_id in cursor:
-                    pkgid2errataids.setdefault("pkgid2errataids:%s" % pkg_id, set()).add(errata_id)
-                dump.update(pkgid2errataids)
+                dump.cursor().executemany("insert into pkg_errata values(?,?)", cursor)
+
+            dump.cursor().execute("""
+               create table if not exists errata_repo(
+                   errata_id int,
+                   repo_id int,
+                   primary key (errata_id, repo_id)
+               )""")
 
             # Select errata ID to repo IDs mapping, only for relevant errata
             with self._named_cursor() as cursor:
@@ -260,12 +312,10 @@ order by p.name_id, evr.evr
                                     from errata_repo
                                    where errata_id in %s
                                 """, [tuple(self.errata_ids)])
-                errataid2repoids = {}
-                for errata_id, repo_id in cursor:
-                    errataid2repoids.setdefault("errataid2repoids:%s" % errata_id,
-                                                set()).add(repo_id)
-                dump.update(errataid2repoids)
+                dump.cursor().executemany("insert into errata_repo values(?, ?)", cursor)
 
+            #TODO: Finish generation
+            return
             # Select errata detail for errata API
             errataid2cves = {}
             with self._named_cursor() as cursor:

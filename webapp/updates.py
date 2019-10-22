@@ -5,21 +5,22 @@ Module to handle /updates API calls.
 import os
 import hashlib
 from jsonschema import validate
-
+import time
 from probes import HOT_CACHE_INSERTS, HOT_CACHE_REMOVAL, UPDATES_CACHE_HITS, UPDATES_CACHE_MISSES
-from cache import REPO_LABEL, REPO_BASEARCH, REPO_RELEASEVER, REPO_PRODUCT_ID, REPO_URL, PKG_SUMMARY_ID, PKG_DESC_ID
+from cache import REPO_LABEL, REPO_BASEARCH, REPO_RELEASEVER, REPO_PRODUCT_ID, REPO_URL, PKG_SUMMARY_ID, PKG_DESC_ID, \
+    Cache
 from common.webapp_utils import join_packagename, split_packagename, none2empty
 
 JSON_SCHEMA = {
-    'type' : 'object',
+    'type': 'object',
     'required': ['package_list'],
-    'properties' : {
+    'properties': {
         'package_list': {
-            'type': 'array', 'items': {'type': 'string'}, 'minItems' : 1
-            },
+            'type': 'array', 'items': {'type': 'string'}, 'minItems': 1
+        },
         'repository_list': {
-            'type': 'array', 'items': {'type' : 'string'}
-            },
+            'type': 'array', 'items': {'type': 'string'}
+        },
         'modules_list': {
             'type': 'array',
             'items': {
@@ -31,8 +32,8 @@ JSON_SCHEMA = {
                 }
             }
         },
-        'releasever' : {'type' : 'string'},
-        'basearch' : {'type' : 'string'}
+        'releasever': {'type': 'string'},
+        'basearch': {'type': 'string'}
     }
 }
 
@@ -187,43 +188,47 @@ class HotCache:
 
 class UpdatesAPI:
     """ Main /updates API class."""
-    def __init__(self, db_cache):
-        self.db_cache = db_cache      # DB dump in memory, stored like a dict
-        self.hot_cache = HotCache()   # hot cache of the application, splay tree
+
+    def __init__(self, db_cache: Cache):
+        self.db_cache = db_cache  # DB dump in memory, stored like a dict
+        self.hot_cache = HotCache()  # hot cache of the application, splay tree
         self.use_hot_cache = "YES"
 
     def _process_repositories(self, data, response):
         # Read list of repositories
         repo_list = data.get('repository_list', None)
-        if repo_list is not None:
-            repo_ids = []
-            for label in repo_list:
-                repo_id = self.db_cache.repolabel2ids.get(label, None)
-                if repo_id:
-                    repo_ids.extend(repo_id)
-            response['repository_list'] = repo_list
-        else:
-            repo_ids = self.db_cache.repo_detail.keys()
+        labels = self.db_cache.sqlite.execute("""select id from repo_detail""")
+        return list(labels)
 
-        # Filter out repositories of different releasever
-        releasever = data.get('releasever', None)
-        if releasever is not None:
-            repo_ids = [oid for oid in repo_ids
-                        if self.db_cache.repo_detail[oid][REPO_RELEASEVER] == releasever
-                        or (self.db_cache.repo_detail[oid][REPO_RELEASEVER] is None
-                            and releasever in self.db_cache.repo_detail[oid][REPO_URL])]
-            response['releasever'] = releasever
-
-        # Filter out repositories of different basearch
-        basearch = data.get('basearch', None)
-        if basearch is not None:
-            repo_ids = [oid for oid in repo_ids
-                        if self.db_cache.repo_detail[oid][REPO_BASEARCH] == basearch
-                        or (self.db_cache.repo_detail[oid][REPO_BASEARCH] is None
-                            and basearch in self.db_cache.repo_detail[oid][REPO_URL])]
-            response['basearch'] = basearch
-
-        return set(repo_ids)
+        # if repo_list is not None:
+        #     repo_ids = []
+        #     for label in repo_list:
+        #         repo_id = self.db_cache.repolabel2ids.get(label, None)
+        #         if repo_id:
+        #             repo_ids.extend(repo_id)
+        #     response['repository_list'] = repo_list
+        # else:
+        #     repo_ids = self.db_cache.repo_detail.keys()
+        #
+        # # Filter out repositories of different releasever
+        # releasever = data.get('releasever', None)
+        # if releasever is not None:
+        #     repo_ids = [oid for oid in repo_ids
+        #                 if self.db_cache.repo_detail[oid][REPO_RELEASEVER] == releasever
+        #                 or (self.db_cache.repo_detail[oid][REPO_RELEASEVER] is None
+        #                     and releasever in self.db_cache.repo_detail[oid][REPO_URL])]
+        #     response['releasever'] = releasever
+        #
+        # # Filter out repositories of different basearch
+        # basearch = data.get('basearch', None)
+        # if basearch is not None:
+        #     repo_ids = [oid for oid in repo_ids
+        #                 if self.db_cache.repo_detail[oid][REPO_BASEARCH] == basearch
+        #                 or (self.db_cache.repo_detail[oid][REPO_BASEARCH] is None
+        #                     and basearch in self.db_cache.repo_detail[oid][REPO_URL])]
+        #     response['basearch'] = basearch
+        #
+        # return set(repo_ids)
 
     def _process_input_packages(self, data, response):
         """Parse input NEVRAs and filter out unknown (or without updates) package names."""
@@ -233,18 +238,21 @@ class UpdatesAPI:
             for pkg in packages_to_process:
                 response['update_list'][pkg] = {}
                 name, epoch, ver, rel, arch = split_packagename(pkg)
-                if name in self.db_cache.packagename2id:
-                    if self.db_cache.packagename2id[name] in self.db_cache.updates_index:
-                        filtered_packages_to_process[pkg] = {'parsed_nevra': (name, epoch, ver, rel, arch)}
+                # if name in self.db_cache.packagename2id:
+                #    if self.db_cache.packagename2id[name] in self.db_cache.updates_index:
+                filtered_packages_to_process[pkg] = {'parsed_nevra': (name, epoch, ver, rel, arch)}
         return filtered_packages_to_process
 
     def _get_related_products(self, original_package_repo_ids):
-        product_ids = set()
-        for original_package_repo_id in original_package_repo_ids:
-            product_ids.add(self.db_cache.repo_detail[original_package_repo_id][REPO_PRODUCT_ID])
-        return product_ids
+        product_ids = self.db_cache.sqlite.execute("select product_id from repo_detail where id in (?)",
+                                                   original_package_repo_ids);
+        return set(product_ids)
+        # for original_package_repo_id in original_package_repo_ids:
+        #     product_ids.add(self.db_cache.repo_detail[original_package_repo_id][REPO_PRODUCT_ID])
+        # return product_ids
 
     def _get_valid_releasevers(self, original_package_repo_ids):
+
         valid_releasevers = set()
         for original_package_repo_id in original_package_repo_ids:
             valid_releasevers.add(self.db_cache.repo_detail[original_package_repo_id][REPO_RELEASEVER])
@@ -262,7 +270,7 @@ class UpdatesAPI:
         for repo_id in res_repos:
             repo_detail = self.db_cache.repo_detail[repo_id]
             if repo_detail[REPO_RELEASEVER] in valid_releasevers \
-              and repo_detail[REPO_PRODUCT_ID] in product_ids:
+                    and repo_detail[REPO_PRODUCT_ID] in product_ids:
                 repo_ids.add(repo_id)
 
         return repo_ids
@@ -278,11 +286,67 @@ class UpdatesAPI:
                          repo_ids_key, response, module_ids):
         # pylint: disable=too-many-branches
         module_filter = module_ids is not None
+
+        cursor = self.db_cache.sqlite.cursor()
+
         for pkg, pkg_dict in packages_to_process.items():
             name, epoch, ver, rel, arch = pkg_dict['parsed_nevra']
-            name_id = self.db_cache.packagename2id[name]
-            evr_id = self.db_cache.evr2id.get((epoch, ver, rel), None)
-            arch_id = self.db_cache.arch2id.get(arch, None)
+
+
+            # print(name, epoch, ver, rel, arch)
+            response['update_list'].setdefault(pkg, {}).setdefault('available_updates', [])
+            try:
+                t1 = time.perf_counter()
+                cursor.execute("""         
+
+select 
+	n.id as name_id, 
+	e.id as evr_id, 
+	a.id as arch_id, 
+	e_up.id , 
+	e_up.epoch, 
+	e_up.version, 
+	e_up.release, 
+	up.id as up_id, 
+	err.name as err_name,
+	r.label as repo_label,
+	r.basearch as repo_arch,
+	r.releasever as repo_rv
+	
+from package_details p
+	join arch a on p.arch_id = a.id
+	join evr e on p.evr_id = e.id
+	join package_name n on p.name_id = n.id
+	join package_details up on p.name_id = up.name_id
+	join evr e_up on up.evr_id = e_up.id and (e_up.epoch > e.epoch or e_up.version > e.version or e_up.release > e.release)
+	join arch_compat c on c.from_arch_id = a.id and c.to_arch_id = up.arch_id
+	join pkg_errata pe on pe.pkg_id = up.id
+	join errata err on err.id = pe.errata_id
+	join pkg_repo pr on pr.pkg_id = up.id
+	join repo_detail r on r.id = pr.repo_id
+where n.name = ?
+	and e.epoch = ?
+	and e.version = ?
+	and e.release = ?
+	and a.name = ?
+order by name_id, arch_id, evr_id, e_up.epoch, e_up.version, e_up.release
+                """, (name, epoch, ver, rel, arch))
+                for name_id, evr_id, arch_id, up_id, up_epoch, up_version, up_release, up_id, err_name, repo_label, repo_arch, repo_rv \
+                    in cursor.fetchall():
+                    response['update_list'][pkg]['available_updates'].append({
+                        'package': "TODO",
+                        'erratum': err_name,
+                        'repository': repo_label,
+                        'basearch': none2empty(repo_arch),
+                        'releasever': none2empty(repo_rv)
+                    })
+                t2 = time.perf_counter()
+                print(f"Row retrieved : {(t2 - t1)}")
+                if (t2 - t1) > 0.04:
+                    print(f"{name}, {epoch}, {ver}, {arch}, {rel}")
+                continue
+            except Exception as e:
+                print("Exc: ", e)
 
             name_evr_indexes = self.db_cache.updates_index.get(name_id, {})
             current_evr_indexes = name_evr_indexes.get(arch_id, {}).get(evr_id, [])
@@ -313,8 +377,7 @@ class UpdatesAPI:
             response['update_list'][pkg]['available_updates'] = []
 
             # No updates found for given NEVRA
-            last_version_pkg_id = self.db_cache.updates[name_id][arch_id][-1]
-            if last_version_pkg_id == current_nevra_pkg_id:
+            if self.db_cache.updates[name_id][arch_id][-1] == current_nevra_pkg_id:
                 continue
 
             # Get associated product IDs
@@ -335,7 +398,7 @@ class UpdatesAPI:
                 nevra = self._build_nevra(update_pkg_id)
                 for errata_id in errata_ids:
                     if (module_filter and (update_pkg_id, errata_id) in self.db_cache.pkgerrata2module and not
-                            self.db_cache.pkgerrata2module[(update_pkg_id, errata_id)].intersection(module_ids)):
+                    self.db_cache.pkgerrata2module[(update_pkg_id, errata_id)].intersection(module_ids)):
                         continue
                     repo_ids = self._get_repositories(product_ids, update_pkg_id, [errata_id], available_repo_ids,
                                                       valid_releasevers)
