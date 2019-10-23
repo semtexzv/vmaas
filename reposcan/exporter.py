@@ -85,12 +85,11 @@ class DataDump:
         if self.packagename_ids:
             with self._named_cursor() as cursor:
                 cursor.execute("""
-select p.name_id, compat.from_arch_id,  p.id, p.evr_id
+select p.name_id, p.arch_id, p.id, p.evr_id
 from package p
          inner join evr on p.evr_id = evr.id
-         join arch_compatibility compat on p.arch_id = compat.to_arch_id
 where p.name_id in %s
-order by p.name_id, evr.evr
+order by p.name_id, p.arch_id, evr.evr
             """, [tuple(self.packagename_ids)])
                 index_cnt = {}
                 updates = {}
@@ -103,8 +102,7 @@ order by p.name_id, evr.evr
                         .append(pkg_id)
 
                     updates_index.setdefault("updates_index:%s" % name_id, {}) \
-                                 .setdefault(arch_id, {}) \
-                                 .setdefault(evr_id, []).append(idx)
+                                 .setdefault(arch_id, {})[evr_id] = idx
                     idx += 1
                     index_cnt[(name_id, arch_id)] = idx
                 dump.update(updates)

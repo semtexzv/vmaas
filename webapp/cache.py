@@ -187,4 +187,8 @@ class Cache:
             else:
                 raise KeyError("Unknown relation in data: %s" % relation)
 
+        for k in self.updates:
+            for arch in self.updates[k]:
+                self.updates[k][arch] = as_long_arr(self.updates[k][arch])
+
         LOGGER.info("Loaded data version %s.", self.dbchange.get('exported', 'unknown'))
