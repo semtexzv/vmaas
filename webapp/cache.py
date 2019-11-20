@@ -89,7 +89,7 @@ class Cache:
         self.content_set_id2pkg_name_ids = {}
         self.content_set_id2label = {}
         self.label2content_set_id = {}
-        self.id2packagename = {}
+        self.id2packagename = {}  # sqlite
         self.updates = {}
         self.updates_index = {}
         self.evr2id = {}
