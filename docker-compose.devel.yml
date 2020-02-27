@@ -26,7 +26,7 @@ services:
     working_dir: /git
     command: /vmaas/entrypoint.sh sleep
 
-  vmaas_webapp:
+  vmaas_webapp_py:
     volumes:
       - ./webapp:/git
       - ./common:/git/common
@@ -34,6 +34,15 @@ services:
       - label=disable
     working_dir: /git
     command: /vmaas/entrypoint.sh sleep
+
+
+  vmaas_webapp:
+    volumes:
+      - ./webapp-next:/git
+    security_opt:
+      - label=disable
+    working_dir: /git
+    command: ["sleep", "infinity"]
 
   vmaas_webapp_utils:
     volumes:
