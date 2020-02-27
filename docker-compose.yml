@@ -50,14 +50,14 @@ services:
       - vmaas_websocket
       - vmaas_database
 
-  vmaas_webapp:
-    container_name: vmaas-webapp
+  vmaas_webapp_py:
+    container_name: vmaas-webapp-py
     build:
         context: .
         dockerfile: ./webapp/Dockerfile
         args:
           PIPENV_CHECK: "${PIPENV_CHECK:-1}"
-    image: vmaas/webapp:latest
+    image: vmaas/webapp-py:latest
     restart: unless-stopped
     env_file:
       - ./conf/webapp.env
@@ -67,7 +67,22 @@ services:
       - vmaas_websocket
       - vmaas_reposcan
 
-    
+  vmaas_webapp:
+    container_name: vmaas-webapp
+    build:
+      context: .
+      dockerfile: webapp/Dockerfile
+    image: vmaas/webapp:latest
+    restart: unless-stopped
+    env_file:
+      - ./conf/webapp.env
+    ports:
+      - 1080:1080
+    depends_on:
+      - vmaas_websocket
+      - vmaas_reposcan
+      - vmaas_webapp_py
+
   vmaas_webapp_utils:
     container_name: vmaas-webapp-utils
     build:
