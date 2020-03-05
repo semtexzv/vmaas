@@ -174,6 +174,8 @@ class UpdatesAPI:
                             'releasever': none2empty(repo_details[REPO_RELEASEVER])
                         })
 
+                response['update_list'][pkg]['available_updates'].sort(key=lambda x: x['package'])
+
     def process_list(self, api_version, data):
         """
         This method is looking for updates of a package, including name of package to update to,
