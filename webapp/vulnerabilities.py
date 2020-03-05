@@ -22,4 +22,4 @@ class VulnerabilitiesAPI:
                 errata_list.add(update['erratum'])
         for errata in errata_list:
             cve_list.update(self.db_cache.errata_detail[errata][ERRATA_CVE])
-        return {'cve_list': list(cve_list)}
+        return {'cve_list': sorted(list(cve_list))}

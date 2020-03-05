@@ -335,6 +335,8 @@ class UpdatesAPI:
                             'releasever': none2empty(repo_details[REPO_RELEASEVER])
                         })
 
+                response['update_list'][pkg]['available_updates'].sort(key=lambda x: x['package'])
+
             if self.use_hot_cache.upper() == "YES":
                 HOT_CACHE_INSERTS.inc()
                 self.hot_cache.insert(repo_ids_key + pkg + str(security_only), response['update_list'][pkg])
