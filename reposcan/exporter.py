@@ -642,7 +642,7 @@ class SqliteDump:
                                 releasever text,
                                 product text,
                                 product_id integer,
-                                revision text
+                                revision datetime
                                )""")
         # Select repo detail mapping
         with self._named_cursor() as cursor:
@@ -664,7 +664,8 @@ class SqliteDump:
                 dump.execute("insert into repo_detail values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                              (oid, label, name, url, basearch,
                               releasever, product, product_id,
-                              format_datetime(revision)))
+                              # Use NULLs in export
+                              format_datetime(revision) if revision is not None else None))
 
         dump.execute("""create table if not exists pkg_repo (
                                 pkg_id integer,
@@ -777,9 +778,9 @@ class SqliteDump:
                                """, [tuple(self.errata_ids)])
                 for errata_id, ref_type, ref_name in cursor:
                     if ref_type == 'bugzilla':
-                        dump.execute("insert into errata_refs values (?, ?)", (errata_id, ref_name))
-                    else:
                         dump.execute("insert into errata_bugzilla values (?, ?)", (errata_id, ref_name))
+                    else:
+                        dump.execute("insert into errata_refs values (?, ?)", (errata_id, ref_name))
 
             # Select errata ID to module mapping
             with self._named_cursor() as cursor:
